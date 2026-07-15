@@ -1,187 +1,205 @@
 /*
- * Copyright (C) 2023 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+    * Copyright (C) 2023 The Android Open Source Project
+    *
+    * Licensed under the Apache License, Version 2.0 (the "License");
+    * you may not use this file except in compliance with the License.
+    * You may obtain a copy of the License at
+    *
+    *      http://www.apache.org/licenses/LICENSE-2.0
+    *
+    * Unless required by applicable law or agreed to in writing, software
+    * distributed under the License is distributed on an "AS IS" BASIS,
+    * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    * See the License for the specific language governing permissions and
+    * limitations under the License.
+    */
 
-plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.kotlin.kapt)
-    alias(libs.plugins.dagger.hilt.android)
-    alias(libs.plugins.compose.compiler)
-}
-
-android {
-    compileSdk = libs.versions.compileSdk.get().toInt()
-
-    namespace = "com.google.jetpackcamera"
-
-    defaultConfig {
-        applicationId = "com.google.jetpackcamera"
-        minSdk = libs.versions.minSdk.get().toInt()
-        targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "0.1.0"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        testInstrumentationRunnerArguments["clearPackageData"] = "true"
+    plugins {
+      alias(libs.plugins.android.application)
+      alias(libs.plugins.kotlin.android)
+      alias(libs.plugins.kotlin.kapt)
+      alias(libs.plugins.dagger.hilt.android)
+      alias(libs.plugins.compose.compiler)
     }
 
-    buildTypes {
-        getByName("debug") {
-            signingConfig = signingConfigs.getByName("debug")
-        }
-        getByName("release") {
-            isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
-        }
-        create("benchmark") {
-            initWith(buildTypes.getByName("release"))
-            signingConfig = signingConfigs.getByName("debug")
-            matchingFallbacks += listOf("release")
-        }
+    android {
+      compileSdk = libs.versions.compileSdk.get().toInt()
+
+      namespace = "com.google.jetpackcamera"
+
+      defaultConfig {
+          applicationId = "com.google.jetpackcamera"
+          minSdk = libs.versions.minSdk.get().toInt()
+          targetSdk = libs.versions.targetSdk.get().toInt()
+          versionCode = 1
+          versionName = "0.1.0"
+          testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+          testInstrumentationRunnerArguments["clearPackageData"] = "true"
+      }
+
+      buildTypes {
+          getByName("debug") {
+              signingConfig = signingConfigs.getByName("debug")
+          }
+          getByName("release") {
+              // No signingConfig is assigned here on purpose: assembleRelease
+              // produces an UNSIGNED APK (app-<flavor>-release-unsigned.apk).
+              // Sign it yourself before installing.
+              isMinifyEnabled = true
+              isShrinkResources = true
+              isDebuggable = false
+              proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+          }
+          create("benchmark") {
+              initWith(buildTypes.getByName("release"))
+              signingConfig = signingConfigs.getByName("debug")
+              matchingFallbacks += listOf("release")
+          }
+      }
+
+      // Split output into one APK per ABI (arm64-v8a, armeabi-v7a, x86, x86_64)
+      // plus a universal fallback. Per-ABI APKs are significantly smaller since
+      // they drop native libraries for architectures the device doesn't need.
+      splits {
+          abi {
+              isEnable = true
+              reset()
+              include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+              isUniversalApk = true
+          }
+      }
+
+      flavorDimensions += "flavor"
+      productFlavors {
+          create("stable") {
+              dimension = "flavor"
+              isDefault = true
+          }
+      }
+
+      compileOptions {
+          isCoreLibraryDesugaringEnabled = true
+          sourceCompatibility = JavaVersion.VERSION_17
+          targetCompatibility = JavaVersion.VERSION_17
+      }
+      kotlin {
+          jvmToolchain(17)
+      }
+      buildFeatures {
+          buildConfig = true
+          compose = true
+      }
+      packaging {
+          resources {
+              excludes += "/META-INF/{AL2.0,LGPL2.1}"
+          }
+      }
+
+      @Suppress("UnstableApiUsage")
+      testOptions {
+          execution = "ANDROIDX_TEST_ORCHESTRATOR"
+
+          managedDevices {
+              localDevices {
+                  create("pixel2Api28") {
+                      device = "Pixel 2"
+                      apiLevel = 28
+                  }
+                  create("pixel8Api34") {
+                      device = "Pixel 8"
+                      apiLevel = 34
+                      systemImageSource = "aosp_atd"
+                  }
+              }
+          }
+      }
     }
 
-    flavorDimensions += "flavor"
-    productFlavors {
-        create("stable") {
-            dimension = "flavor"
-            isDefault = true
-        }
+    dependencies {
+      implementation(libs.androidx.tracing)
+      implementation(project(":core:common"))
+      implementation(project(":feature:postcapture"))
+      // Compose
+      val composeBom = platform(libs.compose.bom)
+      implementation(composeBom)
+      androidTestImplementation(composeBom)
+
+      // Compose - Material Design 3
+      implementation(libs.compose.material3)
+
+      // Compose - Android Studio Preview support
+      implementation(libs.compose.ui.tooling.preview)
+      debugImplementation(libs.compose.ui.tooling)
+
+      // Compose - Integration with ViewModels
+      implementation(libs.androidx.lifecycle.viewmodel.compose)
+      implementation(libs.androidx.lifecycle.runtime.compose)
+
+      // Compose - Integration with Activities
+      implementation(libs.androidx.activity.compose)
+
+      // Compose - Testing
+      androidTestImplementation(libs.compose.junit)
+
+      // Testing
+      testImplementation(libs.junit)
+      androidTestImplementation(libs.androidx.junit)
+      androidTestImplementation(libs.androidx.espresso.core)
+      androidTestImplementation(libs.androidx.rules)
+      androidTestImplementation(libs.androidx.uiautomator)
+      androidTestImplementation(libs.camera.lifecycle) // to reset CameraX between tests
+      androidTestImplementation(libs.truth)
+      androidTestImplementation(libs.testParameterInjector)
+      androidTestImplementation(project(":ui:uistate"))
+      androidTestImplementation(project(":ui:components:capture"))
+      androidTestImplementation(project(":ui:debug"))
+      androidTestUtil(libs.androidx.orchestrator)
+
+      implementation(libs.androidx.core.ktx)
+      implementation(libs.androidx.lifecycle.runtime.compose)
+
+      // Hilt
+      implementation(libs.dagger.hilt.android)
+      kapt(libs.dagger.hilt.compiler)
+
+      // Accompanist - Permissions
+      implementation(libs.accompanist.permissions)
+
+      // Jetpack Navigation
+      implementation(libs.androidx.navigation.compose)
+
+      // Access settings & model data
+      implementation(project(":data:settings"))
+      implementation(project(":core:settings:datastore-prefs"))
+      implementation(project(":core:settings"))
+      implementation(project(":core:model"))
+      implementation(libs.androidx.datastore.preferences)
+
+      // Camera Preview
+      implementation(project(":feature:preview"))
+
+      // Settings Screen
+      implementation(project(":feature:settings"))
+
+      // Permissions Screen
+      implementation(project(":feature:permissions"))
+      // benchmark
+      implementation(libs.androidx.profileinstaller)
+
+      // Desugaring
+      coreLibraryDesugaring(libs.desugar.jdk.libs)
+
+      // capture components
+      implementation(project(":ui:uistate"))
+      implementation(project(":ui:components:capture"))
+      implementation(project(":ui:debug"))
+
+      implementation(project(":core:camera:low-light-playservices"))
+      implementation(project(":core:camera:effects:single-stream"))
     }
 
-    compileOptions {
-        isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+    // Allow references to generated code
+    kapt {
+      correctErrorTypes = true
     }
-    kotlin {
-        jvmToolchain(17)
-    }
-    buildFeatures {
-        buildConfig = true
-        compose = true
-    }
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-    }
-
-    @Suppress("UnstableApiUsage")
-    testOptions {
-        execution = "ANDROIDX_TEST_ORCHESTRATOR"
-
-        managedDevices {
-            localDevices {
-                create("pixel2Api28") {
-                    device = "Pixel 2"
-                    apiLevel = 28
-                }
-                create("pixel8Api34") {
-                    device = "Pixel 8"
-                    apiLevel = 34
-                    systemImageSource = "aosp_atd"
-                }
-            }
-        }
-    }
-}
-
-dependencies {
-    implementation(libs.androidx.tracing)
-    implementation(project(":core:common"))
-    implementation(project(":feature:postcapture"))
-    // Compose
-    val composeBom = platform(libs.compose.bom)
-    implementation(composeBom)
-    androidTestImplementation(composeBom)
-
-    // Compose - Material Design 3
-    implementation(libs.compose.material3)
-
-    // Compose - Android Studio Preview support
-    implementation(libs.compose.ui.tooling.preview)
-    debugImplementation(libs.compose.ui.tooling)
-
-    // Compose - Integration with ViewModels
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.androidx.lifecycle.runtime.compose)
-
-    // Compose - Integration with Activities
-    implementation(libs.androidx.activity.compose)
-
-    // Compose - Testing
-    androidTestImplementation(libs.compose.junit)
-
-    // Testing
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(libs.androidx.rules)
-    androidTestImplementation(libs.androidx.uiautomator)
-    androidTestImplementation(libs.camera.lifecycle) // to reset CameraX between tests
-    androidTestImplementation(libs.truth)
-    androidTestImplementation(libs.testParameterInjector)
-    androidTestImplementation(project(":ui:uistate"))
-    androidTestImplementation(project(":ui:components:capture"))
-    androidTestImplementation(project(":ui:debug"))
-    androidTestUtil(libs.androidx.orchestrator)
-
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.compose)
-
-    // Hilt
-    implementation(libs.dagger.hilt.android)
-    kapt(libs.dagger.hilt.compiler)
-
-    // Accompanist - Permissions
-    implementation(libs.accompanist.permissions)
-
-    // Jetpack Navigation
-    implementation(libs.androidx.navigation.compose)
-
-    // Access settings & model data
-    implementation(project(":data:settings"))
-    implementation(project(":core:settings:datastore-prefs"))
-    implementation(project(":core:settings"))
-    implementation(project(":core:model"))
-    implementation(libs.androidx.datastore.preferences)
-
-    // Camera Preview
-    implementation(project(":feature:preview"))
-
-    // Settings Screen
-    implementation(project(":feature:settings"))
-
-    // Permissions Screen
-    implementation(project(":feature:permissions"))
-    // benchmark
-    implementation(libs.androidx.profileinstaller)
-
-    // Desugaring
-    coreLibraryDesugaring(libs.desugar.jdk.libs)
-
-    // capture components
-    implementation(project(":ui:uistate"))
-    implementation(project(":ui:components:capture"))
-    implementation(project(":ui:debug"))
-
-    implementation(project(":core:camera:low-light-playservices"))
-    implementation(project(":core:camera:effects:single-stream"))
-}
-
-// Allow references to generated code
-kapt {
-    correctErrorTypes = true
-}
+    
