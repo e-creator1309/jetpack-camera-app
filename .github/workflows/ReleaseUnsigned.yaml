@@ -1,0 +1,50 @@
+name: Release (Unsigned)
+
+    on:
+    workflow_dispatch:
+
+    concurrency:
+    group: build-release-${{ github.ref }}
+    cancel-in-progress: true
+
+    env:
+    JDK_VERSION: 17
+    DISTRIBUTION: 'zulu'
+
+    jobs:
+    build_release:
+      name: Build Unsigned Release APK
+      runs-on: ubuntu-latest
+      timeout-minutes: 120
+      steps:
+        - name: Checkout
+          uses: actions/checkout@v4
+
+        - name: Set up JDK
+          uses: actions/setup-java@v5
+          with:
+            distribution: ${{ env.DISTRIBUTION }}
+            java-version: ${{ env.JDK_VERSION }}
+
+        - name: Setup Gradle
+          uses: gradle/actions/setup-gradle@v4
+          with:
+            cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+        - name: Build unsigned stable release APKs (minified, shrunk, per-ABI splits)
+          run: ./gradlew assembleStableRelease --parallel --build-cache
+
+        - name: Upload unsigned release APKs
+          uses: actions/upload-artifact@v4
+          with:
+            name: release-unsigned-apks
+            path: app/build/outputs/apk/stable/release/*.apk
+
+        - name: Upload build reports
+          if: always()
+          continue-on-error: true
+          uses: actions/upload-artifact@v4
+          with:
+            name: release-build-reports
+            path: "*/build/reports"
+    
